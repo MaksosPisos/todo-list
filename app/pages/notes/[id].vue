@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
+import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import { cloneContent } from '../../domain/notes'
 import { useNotesStore } from '../../stores/notes'
 import { useNoteEditor } from '../../composables/useNoteEditor'
+import { useConfirmation } from '../../composables/useConfirmation'
 
 const route = useRoute()
 const router = useRouter()
@@ -16,6 +18,7 @@ const editor = useNoteEditor(
   original?.revision ?? null,
 )
 const { content, dirty } = editor
+const { options, ask, settle } = useConfirmation()
 const missing = computed(() => !isNew && !store.notes.some((note) => note.id === routeId))
 const invalidIds = ref<string[]>([])
 const error = ref('')
@@ -66,6 +69,53 @@ async function save(): Promise<void> {
         ? 'В другой вкладке сохранена новая версия. Скопируйте нужный текст и откройте заметку заново.'
         : 'Не удалось сохранить заметку. Ваш текст остаётся в редакторе.'
 }
+async function cancel(): Promise<void> {
+  if (
+    await ask({
+      title: 'Отменить редактирование?',
+      description:
+        'Несохранённые изменения и черновик будут удалены. Сохранённая версия заметки останется прежней.',
+      confirmLabel: 'Отменить редактирование',
+      cancelLabel: 'Продолжить',
+    })
+  ) {
+    leaving.value = true
+    await router.push('/')
+  }
+}
+async function remove(): Promise<void> {
+  if (
+    await ask({
+      title: 'Удалить заметку?',
+      description:
+        'Заметка и все её задачи будут удалены, включая несохранённые изменения. Это действие нельзя отменить.',
+      confirmLabel: 'Удалить',
+      cancelLabel: 'Оставить',
+      danger: true,
+    })
+  ) {
+    if (store.remove(routeId)) {
+      leaving.value = true
+      await router.push('/')
+    }
+  }
+}
+async function confirmLeave(): Promise<boolean> {
+  if (leaving.value || !dirty.value) return true
+  const discard = await ask({
+    title: 'Уйти без сохранения?',
+    description:
+      'Несохранённые изменения и черновик будут удалены. Сначала сохраните заметку, если хотите оставить изменения.',
+    confirmLabel: 'Уйти без сохранения',
+    cancelLabel: 'Остаться',
+  })
+  return discard
+}
+onBeforeRouteLeave(confirmLeave)
+onBeforeRouteUpdate((to, from) => {
+  if (to.params.id === from.params.id) return true
+  return confirmLeave()
+})
 useHead({
   title: computed(
     () => `${isNew ? 'Новая заметка' : content.value.title || 'Без названия'} — Тихо`,
@@ -168,9 +218,15 @@ useHead({
               <AppIcon name="check" :size="18" />
               Сохранить заметку
             </button>
+            <button class="button button--text" @click="cancel">Отменить редактирование</button>
           </div>
+          <button v-if="!isNew && !missing" class="delete-note" @click="remove">
+            <AppIcon name="trash" :size="16" />
+            Удалить заметку
+          </button>
         </aside>
       </div>
     </template>
+    <AppModal :options="options" @confirm="settle(true)" @cancel="settle(false)" />
   </main>
 </template>

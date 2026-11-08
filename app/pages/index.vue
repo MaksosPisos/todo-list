@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useNotesStore } from '../stores/notes'
+import { useConfirmation } from '../composables/useConfirmation'
 const store = useNotesStore()
+const { options, ask, settle } = useConfirmation()
 const search = ref('')
 const filter = ref<'all' | 'active' | 'done'>('all')
 const completed = computed(() =>
@@ -25,6 +27,20 @@ const today = new Intl.DateTimeFormat('ru-RU', {
 function resetFilters(): void {
   search.value = ''
   filter.value = 'all'
+}
+async function remove(id: string): Promise<void> {
+  const note = store.notes.find((note) => note.id === id)
+  if (!note) return
+  if (
+    await ask({
+      title: 'Удалить заметку?',
+      description: `«${note.title}» и все её задачи будут удалены. Это действие нельзя отменить.`,
+      confirmLabel: 'Удалить',
+      cancelLabel: 'Оставить',
+      danger: true,
+    })
+  )
+    store.remove(id)
 }
 useHead({ title: 'Все заметки — Тихо' })
 </script>
@@ -83,7 +99,13 @@ useHead({ title: 'Все заметки — Тихо' })
         </label>
       </div>
       <div v-if="visible.length" class="notes-grid">
-        <NoteCard v-for="(note, index) in visible" :key="note.id" :note="note" :index="index" />
+        <NoteCard
+          v-for="(note, index) in visible"
+          :key="note.id"
+          :note="note"
+          :index="index"
+          @delete="remove"
+        />
         <NuxtLink to="/notes/new" class="new-note-tile">
           <span><AppIcon name="plus" :size="27" /></span>
           Ещё одна хорошая мысль
@@ -137,5 +159,6 @@ useHead({ title: 'Все заметки — Тихо' })
       </p>
       <span>ТИХО, ПО СВОЕМУ</span>
     </aside>
+    <AppModal :options="options" @confirm="settle(true)" @cancel="settle(false)" />
   </main>
 </template>

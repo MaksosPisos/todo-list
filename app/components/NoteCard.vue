@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import type { Note } from '../domain/notes'
 const props = defineProps<{ note: Note; index: number }>()
+defineEmits<{ delete: [id: string] }>()
 const completed = computed(() => props.note.todos.filter((todo) => todo.done).length)
 const date = computed(() =>
   new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short' }).format(
@@ -14,6 +15,13 @@ const date = computed(() =>
   <article class="note-card" :class="`note-card--${index % 3}`">
     <div class="note-card__top">
       <span class="eyebrow">ЗАМЕТКА {{ String(index + 1).padStart(2, '0') }}</span>
+      <button
+        class="icon-button note-card__delete"
+        :aria-label="`Удалить заметку «${note.title}»`"
+        @click="$emit('delete', note.id)"
+      >
+        <AppIcon name="trash" :size="17" />
+      </button>
     </div>
     <h2>
       <NuxtLink :to="`/notes/${note.id}`">{{ note.title }}</NuxtLink>
