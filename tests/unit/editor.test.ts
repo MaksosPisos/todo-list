@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { effectScope, type EffectScope } from 'vue'
+import { effectScope, nextTick, type EffectScope } from 'vue'
 import { useNoteEditor } from '../../app/composables/useNoteEditor'
+import { DRAFT_PREFIX, readDraft } from '../../app/domain/storage'
 import { MemoryStorage } from './helpers'
 
 const { cleanups } = vi.hoisted(() => ({ cleanups: [] as (() => void)[] }))
@@ -99,5 +100,51 @@ describe('editor session: grouping, shortcuts commands and draft scheduling', ()
     edit.flushText()
     edit.redo()
     expect(edit.content.value.title).toBe('B')
+  })
+  it('debounces drafts and includes the latest text even before blur', async () => {
+    const edit = editor()
+    edit.updateText('title', 'A')
+    await nextTick()
+    await vi.advanceTimersByTimeAsync(400)
+    expect(storage.writes).toBe(0)
+    edit.updateText('title', 'AB')
+    await nextTick()
+    await vi.advanceTimersByTimeAsync(799)
+    expect(storage.writes).toBe(0)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(storage.writes).toBe(1)
+    expect(readDraft(storage, 'n1')?.note.title).toBe('AB')
+    expect(readDraft(storage, 'n1')?.baseRevision).toBe('r1')
+  })
+  it('restores the draft, then clears history and draft on finish', async () => {
+    const edit = editor()
+    edit.updateText('title', 'Draft')
+    await nextTick()
+    await vi.advanceTimersByTimeAsync(900)
+    const draft = edit.getDraft()!
+    const restored = editor()
+    restored.restore(draft)
+    expect(restored.content.value.title).toBe('Draft')
+    expect(restored.dirty.value).toBe(true)
+    expect(restored.canUndo.value).toBe(false)
+    restored.updateText('title', 'Final')
+    restored.finish()
+    await nextTick()
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(restored.canUndo.value).toBe(false)
+    expect(restored.canRedo.value).toBe(false)
+    expect(storage.getItem(DRAFT_PREFIX + 'n1')).toBe(null)
+  })
+  it('removes the draft when undo returns exactly to the saved state', async () => {
+    const edit = editor()
+    edit.toggleTodo('t1')
+    await nextTick()
+    await vi.advanceTimersByTimeAsync(900)
+    expect(storage.getItem(DRAFT_PREFIX + 'n1')).not.toBe(null)
+    edit.undo()
+    await nextTick()
+    await vi.advanceTimersByTimeAsync(900)
+    expect(edit.dirty.value).toBe(false)
+    expect(storage.getItem(DRAFT_PREFIX + 'n1')).toBe(null)
   })
 })

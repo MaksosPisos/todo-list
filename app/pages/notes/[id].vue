@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import { cloneContent } from '../../domain/notes'
 import { useNotesStore } from '../../stores/notes'
@@ -19,13 +19,19 @@ const editor = useNoteEditor(
   original ? cloneContent(original) : { title: '', todos: [] },
   original?.revision ?? null,
 )
-const { content, dirty, canUndo, canRedo } = editor
+const { content, dirty, canUndo, canRedo, draftMessage, draftError } = editor
 const { options, ask, settle } = useConfirmation()
 const missing = computed(() => !isNew && !store.notes.some((note) => note.id === routeId))
 const invalidIds = ref<string[]>([])
 const error = ref('')
 const leaving = ref(false)
 const completed = computed(() => content.value.todos.filter((todo) => todo.done).length)
+const conflict = computed(
+  () =>
+    !isNew &&
+    !missing.value &&
+    store.notes.find((note) => note.id === routeId)?.revision !== editor.baseRevision.value,
+)
 watch(
   content,
   () => {
@@ -115,6 +121,22 @@ function keyboard(event: KeyboardEvent): void {
     else editor.undo()
   }
 }
+onMounted(async () => {
+  window.addEventListener('keydown', keyboard, true)
+  if (initiallyMissing) return
+  const draft = editor.getDraft()
+  if (draft) {
+    const restore = await ask({
+      title: 'Вернуться к черновику?',
+      description:
+        'В этой вкладке остались несохранённые изменения. Восстановить их и продолжить с того же места?',
+      confirmLabel: 'Восстановить',
+      cancelLabel: 'Удалить черновик',
+    })
+    if (restore) editor.restore(draft)
+    else editor.clearDraft()
+  }
+})
 onBeforeUnmount(() => window.removeEventListener('keydown', keyboard, true))
 async function confirmLeave(): Promise<boolean> {
   if (leaving.value || !dirty.value) return true
@@ -171,6 +193,26 @@ useHead({
           <span class="status-dot" :class="{ 'status-dot--unsaved': dirty }" />
           {{ dirty ? 'Есть изменения' : 'Без изменений' }}
         </span>
+      </div>
+      <div v-if="missing" class="inline-notice" role="status">
+        <AppIcon name="warning" />
+        <div>
+          <strong>Заметка удалена в другой вкладке.</strong>
+          <p>
+            Текущий текст остаётся здесь: его можно скопировать. Удалённая заметка не будет создана
+            заново.
+          </p>
+        </div>
+      </div>
+      <div v-else-if="conflict" class="inline-notice" role="status">
+        <AppIcon name="warning" />
+        <div>
+          <strong>В другой вкладке появилась новая версия.</strong>
+          <p>
+            Скопируйте нужный текст и откройте заметку заново. Сохранение поверх новой версии
+            заблокировано.
+          </p>
+        </div>
       </div>
       <div class="editor-columns">
         <section class="editor-paper" aria-label="Редактор заметки">
@@ -253,11 +295,21 @@ useHead({
         </section>
         <aside class="editor-sidebar">
           <div class="save-panel">
-            <button class="button button--primary" :disabled="missing" @click="save">
+            <button class="button button--primary" :disabled="missing || conflict" @click="save">
               <AppIcon name="check" :size="18" />
               Сохранить заметку
             </button>
             <button class="button button--text" @click="cancel">Отменить редактирование</button>
+            <div class="draft-status" role="status">
+              <AppIcon :name="draftError ? 'warning' : 'shield'" :size="15" />
+              <span>
+                {{
+                  draftError ||
+                  draftMessage ||
+                  (dirty ? 'Сохраняем черновик…' : 'Изменения ещё не внесены')
+                }}
+              </span>
+            </div>
           </div>
           <details class="keyboard-tip">
             <summary>Быстрые клавиши</summary>

@@ -1,6 +1,7 @@
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { cloneContent, sameContent, type NoteContent } from '../domain/notes'
 import { EditHistory, type Change } from '../domain/history'
+import { DRAFT_PREFIX, readDraft, saveDraft, type Draft } from '../domain/storage'
 
 type PendingText =
   { field: 'title'; before: string } | { field: 'text'; id: string; before: string }
@@ -12,7 +13,12 @@ export function useNoteEditor(id: string, initial: NoteContent, initialRevision:
   const history = new EditHistory()
   const historyVersion = ref(0)
   const pending = ref<PendingText | null>(null)
+  const draftMessage = ref('')
+  const draftError = ref('')
   let textTimer: ReturnType<typeof setTimeout> | undefined
+  let draftTimer: ReturnType<typeof setTimeout> | undefined
+  let stopped = false
+  let recoveryPending = false
   const dirty = computed(() => !sameContent(content.value, baseline.value))
   const canUndo = computed(() => {
     void historyVersion.value
@@ -94,18 +100,93 @@ export function useNoteEditor(id: string, initial: NoteContent, initialRevision:
     history.redo(content.value)
     historyVersion.value++
   }
-  function finish(): void {
+  function getDraft(): Draft | null {
+    try {
+      const draft = readDraft(window.sessionStorage, id)
+      recoveryPending = draft !== null
+      return draft
+    } catch {
+      draftError.value = 'Не удалось прочитать черновик. Сохранённые заметки не затронуты.'
+      return null
+    }
+  }
+  function restore(draft: Draft): void {
+    recoveryPending = false
     flushText()
+    content.value = cloneContent(draft.note)
+    baseRevision.value = draft.baseRevision
+    history.clear()
+    historyVersion.value++
+    draftMessage.value = 'Черновик восстановлен'
+  }
+  function clearDraft(): void {
+    recoveryPending = false
+    clearTimeout(draftTimer)
+    try {
+      window.sessionStorage.removeItem(DRAFT_PREFIX + id)
+    } catch {
+      draftError.value = 'Не удалось очистить черновик в браузере.'
+    }
+  }
+  function persistDraft(): void {
+    clearTimeout(draftTimer)
+    if (stopped || recoveryPending) return
+    if (!dirty.value) {
+      clearDraft()
+      draftMessage.value = ''
+      return
+    }
+    try {
+      saveDraft(window.sessionStorage, id, content.value, baseRevision.value)
+      draftMessage.value = 'Черновик сохранён в этой вкладке'
+      draftError.value = ''
+    } catch {
+      draftError.value =
+        'Черновик не сохранён: хранилище недоступно или заполнено. Не закрывайте вкладку до сохранения заметки.'
+    }
+  }
+  function finish(): void {
+    stopped = true
+    flushText()
+    clearDraft()
     history.clear()
     historyVersion.value++
   }
-  onBeforeUnmount(() => clearTimeout(textTimer))
+  watch(
+    content,
+    () => {
+      if (stopped) return
+      draftMessage.value = ''
+      clearTimeout(draftTimer)
+      draftTimer = setTimeout(persistDraft, 800)
+    },
+    { deep: true },
+  )
+  function onPageHide(): void {
+    persistDraft()
+  }
+  function onVisibility(): void {
+    if (document.visibilityState === 'hidden') persistDraft()
+  }
+  window.addEventListener('pagehide', onPageHide)
+  window.addEventListener('beforeunload', onPageHide)
+  document.addEventListener('visibilitychange', onVisibility)
+  onBeforeUnmount(() => {
+    persistDraft()
+    clearTimeout(textTimer)
+    clearTimeout(draftTimer)
+    window.removeEventListener('pagehide', onPageHide)
+    window.removeEventListener('beforeunload', onPageHide)
+    document.removeEventListener('visibilitychange', onVisibility)
+  })
   return {
     content,
     baseRevision,
     dirty,
     canUndo,
     canRedo,
+    draftMessage,
+    draftError,
     flushText,
     updateText,
     addTodo,
@@ -113,6 +194,9 @@ export function useNoteEditor(id: string, initial: NoteContent, initialRevision:
     toggleTodo,
     undo,
     redo,
+    getDraft,
+    restore,
+    clearDraft,
     finish,
   }
 }

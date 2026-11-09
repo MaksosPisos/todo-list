@@ -1,7 +1,13 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useNotesStore } from '../../app/stores/notes'
-import { NOTE_PREFIX, NotesRepository } from '../../app/domain/storage'
+import {
+  DRAFT_PREFIX,
+  NOTE_PREFIX,
+  NotesRepository,
+  readDraft,
+  saveDraft,
+} from '../../app/domain/storage'
 import { MemoryStorage, makeNote } from './helpers'
 
 describe('notes store and manual persistence', () => {
@@ -42,6 +48,40 @@ describe('notes store and manual persistence', () => {
     content.todos[0]!.text = 'not saved'
     expect(store.notes[0]?.todos[0]?.text).toBe('Начать')
   })
+  it('syncs deletion across tabs and prevents resurrection on stale save', () => {
+    const storage = new MemoryStorage()
+    const first = useNotesStore(createPinia())
+    const second = useNotesStore(createPinia())
+    first.initialize(storage)
+    second.initialize(storage)
+    first.save('n1', makeNote(), null)
+    second.sync()
+    const revision = second.notes[0]!.revision
+    first.remove('n1')
+    second.sync()
+    expect(second.notes).toEqual([])
+    expect(second.save('n1', makeNote(), revision)).toBe('missing')
+    expect(storage.getItem(NOTE_PREFIX + 'n1')).toBe(null)
+  })
+  it('preserves unrelated notes when a stale tab saves another note', () => {
+    const storage = new MemoryStorage()
+    const first = useNotesStore(createPinia())
+    const second = useNotesStore(createPinia())
+    first.initialize(storage)
+    second.initialize(storage)
+    first.save('n1', makeNote(), null)
+    second.save('n2', makeNote('n2'), null)
+    first.sync()
+    expect(first.notes.map((note) => note.id).sort()).toEqual(['n1', 'n2'])
+  })
+  it('rejects a conflicting revision without overwriting the newer note', () => {
+    const storage = new MemoryStorage()
+    const repository = new NotesRepository(storage)
+    repository.save(makeNote(), null)
+    repository.save({ ...makeNote(), title: 'Newer', revision: 'r2' }, 'r1')
+    expect(repository.save({ ...makeNote(), title: 'Stale' }, 'r1')).toBe('conflict')
+    expect(repository.load().notes[0]?.title).toBe('Newer')
+  })
   it('keeps unsupported and corrupt records untouched and loads healthy records', () => {
     const storage = new MemoryStorage()
     new NotesRepository(storage).save(makeNote(), null)
@@ -69,5 +109,20 @@ describe('notes store and manual persistence', () => {
     expect(store.warning).toContain('Не удалось сохранить')
     store.failStorage()
     expect(store.ready).toBe(true)
+  })
+  it('round-trips a versioned draft independently of the committed note', () => {
+    const storage = new MemoryStorage()
+    saveDraft(storage, 'n1', makeNote(), 'r1')
+    expect(readDraft(storage, 'n1')).toMatchObject({
+      version: 1,
+      baseRevision: 'r1',
+      note: { id: 'n1', title: 'Планы', todos: makeNote().todos },
+    })
+  })
+  it('validates draft schema and treats an absent draft as empty', () => {
+    const storage = new MemoryStorage()
+    expect(readDraft(storage, 'n1')).toBe(null)
+    storage.setItem(DRAFT_PREFIX + 'n1', JSON.stringify({ version: 2, note: makeNote() }))
+    expect(() => readDraft(storage, 'n1')).toThrow()
   })
 })
