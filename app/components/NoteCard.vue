@@ -4,6 +4,9 @@ import type { Note } from '../domain/notes'
 const props = defineProps<{ note: Note; index: number }>()
 defineEmits<{ delete: [id: string] }>()
 const completed = computed(() => props.note.todos.filter((todo) => todo.done).length)
+const progress = computed(() =>
+  props.note.todos.length ? completed.value / props.note.todos.length : 0,
+)
 const date = computed(() =>
   new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short' }).format(
     new Date(props.note.updatedAt),
@@ -12,20 +15,27 @@ const date = computed(() =>
 </script>
 
 <template>
-  <article class="note-card" :class="`note-card--${index % 3}`">
-    <div class="note-card__top">
-      <span class="eyebrow">ЗАМЕТКА {{ String(index + 1).padStart(2, '0') }}</span>
+  <article class="note-card" :class="{ 'note-card--complete': progress === 1 }">
+    <div class="note-card__heading">
+      <span
+        class="project-progress"
+        :style="{ '--progress': `${progress * 360}deg` }"
+        aria-hidden="true"
+      >
+        <AppIcon v-if="progress === 1" name="check" :size="13" />
+      </span>
+      <h2>
+        <NuxtLink :to="`/notes/${note.id}`">{{ note.title }}</NuxtLink>
+      </h2>
+      <span class="note-card__date">{{ date }}</span>
       <button
         class="icon-button note-card__delete"
         :aria-label="`Удалить заметку «${note.title}»`"
         @click="$emit('delete', note.id)"
       >
-        <AppIcon name="trash" :size="17" />
+        <AppIcon name="trash" :size="16" />
       </button>
     </div>
-    <h2>
-      <NuxtLink :to="`/notes/${note.id}`">{{ note.title }}</NuxtLink>
-    </h2>
     <ul v-if="note.todos.length" class="note-card__todos" aria-label="Предпросмотр задач">
       <li v-for="todo in note.todos.slice(0, 3)" :key="todo.id" :class="{ 'is-done': todo.done }">
         <span
@@ -39,22 +49,26 @@ const date = computed(() =>
         <span class="note-card__text">{{ todo.text }}</span>
       </li>
     </ul>
-    <p v-else class="note-card__empty">Пока без задач. Всё начинается с мысли.</p>
-    <span v-if="note.todos.length > 3" class="note-card__more">
-      Ещё {{ note.todos.length - 3 }}
-    </span>
+    <p v-else class="note-card__empty">Пока без задач</p>
     <div class="note-card__bottom">
-      <span>{{ note.todos.length ? `${completed} из ${note.todos.length} выполнено` : date }}</span>
+      <span>
+        {{
+          note.todos.length
+            ? `${completed} из ${note.todos.length} выполнено`
+            : 'Добавьте первый шаг'
+        }}
+      </span>
+      <span v-if="note.todos.length > 3" class="note-card__more">
+        Ещё {{ note.todos.length - 3 }}
+      </span>
       <NuxtLink
         :to="`/notes/${note.id}`"
         class="note-card__open"
         :aria-label="`Редактировать заметку «${note.title}»`"
       >
-        <AppIcon name="arrow" :size="20" />
+        Открыть
+        <AppIcon name="arrow" :size="15" />
       </NuxtLink>
-    </div>
-    <div v-if="note.todos.length" class="note-card__progress" aria-hidden="true">
-      <span :style="{ width: `${(completed / note.todos.length) * 100}%` }" />
     </div>
   </article>
 </template>

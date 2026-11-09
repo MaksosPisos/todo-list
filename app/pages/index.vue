@@ -5,7 +5,14 @@ import { useConfirmation } from '../composables/useConfirmation'
 const store = useNotesStore()
 const { options, ask, settle } = useConfirmation()
 const search = ref('')
-const filter = ref<'all' | 'active' | 'done'>('all')
+const filter = useNoteFilter()
+const heading = computed(() =>
+  filter.value === 'active'
+    ? 'В процессе'
+    : filter.value === 'done'
+      ? 'Завершённые'
+      : 'Все заметки',
+)
 const completed = computed(() =>
   store.notes.reduce((sum, note) => sum + note.todos.filter((todo) => todo.done).length, 0),
 )
@@ -48,13 +55,17 @@ useHead({ title: 'Все заметки — Тихо' })
 <template>
   <main id="main" class="workspace">
     <div class="workspace__intro">
-      <div>
-        <p class="eyebrow date-label">{{ today }}</p>
-        <h1>
-          Место для
-          <em>важного.</em>
-        </h1>
-        <p class="intro-copy">Соберите мысли. Наметьте шаги. Двигайтесь в своём ритме.</p>
+      <div class="workspace__title">
+        <span class="page-symbol">
+          <AppIcon
+            :name="filter === 'done' ? 'checked-box' : filter === 'active' ? 'circle' : 'inbox'"
+            :size="31"
+          />
+        </span>
+        <div>
+          <p class="date-label">{{ today }}</p>
+          <h1>{{ heading }}</h1>
+        </div>
       </div>
       <NuxtLink class="button button--primary button--create" to="/notes/new">
         <AppIcon name="plus" />
@@ -62,12 +73,9 @@ useHead({ title: 'Все заметки — Тихо' })
       </NuxtLink>
     </div>
     <div class="workspace-summary">
+      <span>Ваши планы, идеи и маленькие шаги</span>
       <span>
-        <span class="status-dot" />
-        Личное пространство
-      </span>
-      <span>
-        {{ store.notes.length }} заметок
+        Заметок: {{ store.notes.length }}
         <span class="summary-divider">/</span>
         {{ completed }} из {{ total }} задач выполнено
       </span>
@@ -75,10 +83,7 @@ useHead({ title: 'Все заметки — Тихо' })
     <section class="notes-section" aria-labelledby="notes-heading">
       <div class="notes-toolbar">
         <div class="notes-toolbar__left">
-          <h2 id="notes-heading">
-            Мои заметки
-            <span>{{ store.notes.length }}</span>
-          </h2>
+          <h2 id="notes-heading" class="sr-only">Мои заметки</h2>
           <div class="filters" role="group" aria-label="Фильтр заметок">
             <button :aria-pressed="filter === 'all'" @click="filter = 'all'">Все</button>
             <button :aria-pressed="filter === 'active'" @click="filter = 'active'">
@@ -108,8 +113,7 @@ useHead({ title: 'Все заметки — Тихо' })
         />
         <NuxtLink to="/notes/new" class="new-note-tile">
           <span><AppIcon name="plus" :size="27" /></span>
-          Ещё одна хорошая мысль
-          <small>Создать заметку</small>
+          Создать заметку
         </NuxtLink>
       </div>
       <div v-else-if="store.notes.length" class="empty-state empty-state--search">
@@ -121,27 +125,12 @@ useHead({ title: 'Все заметки — Тихо' })
         </button>
       </div>
       <div v-else class="empty-state">
-        <div class="paper-illustration" aria-hidden="true">
-          <div class="paper-illustration__back" />
-          <div class="paper-illustration__sheet">
-            <span />
-            <i />
-            <i />
-            <i />
-            <div><AppIcon name="check" :size="20" /></div>
-          </div>
-          <span class="paper-illustration__spark">✳</span>
-        </div>
-        <span class="eyebrow">ЧИСТЫЙ ЛИСТ — ХОРОШЕЕ НАЧАЛО</span>
-        <h3>
-          Большие планы начинаются
-          <br />
-          с маленькой заметки
-        </h3>
+        <div class="empty-state__icon" aria-hidden="true"><AppIcon name="inbox" :size="48" /></div>
+        <h3>Освободите место в голове</h3>
         <p>
-          Список дел, идея или планы на выходные.
+          Создайте заметку и добавьте первые задачи.
           <br />
-          Оставьте здесь то, что не хочется держать в голове.
+          Всё важное будет здесь, когда понадобится.
         </p>
         <NuxtLink to="/notes/new" class="button button--primary">
           <AppIcon name="plus" :size="18" />
@@ -150,15 +139,6 @@ useHead({ title: 'Все заметки — Тихо' })
         <span class="empty-state__hint">Сохраняется на устройстве. Без регистрации.</span>
       </div>
     </section>
-    <aside class="workspace-note">
-      <AppIcon name="leaf" :size="21" />
-      <p>
-        Не обязательно успеть всё.
-        <br />
-        <strong>Достаточно начать с одного шага.</strong>
-      </p>
-      <span>ТИХО, ПО СВОЕМУ</span>
-    </aside>
     <AppModal :options="options" @confirm="settle(true)" @cancel="settle(false)" />
   </main>
 </template>
