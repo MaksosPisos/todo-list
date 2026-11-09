@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import { cloneContent } from '../../domain/notes'
 import { useNotesStore } from '../../stores/notes'
@@ -11,13 +11,15 @@ const router = useRouter()
 const store = useNotesStore()
 const routeId = String(route.params.id)
 const isNew = routeId === 'new'
+const id = isNew ? 'new' : routeId
 const original = store.notes.find((note) => note.id === routeId)
 const initiallyMissing = !isNew && !original
 const editor = useNoteEditor(
+  id,
   original ? cloneContent(original) : { title: '', todos: [] },
   original?.revision ?? null,
 )
-const { content, dirty } = editor
+const { content, dirty, canUndo, canRedo } = editor
 const { options, ask, settle } = useConfirmation()
 const missing = computed(() => !isNew && !store.notes.some((note) => note.id === routeId))
 const invalidIds = ref<string[]>([])
@@ -49,6 +51,7 @@ function removeTodo(todoId: string, index: number): void {
   else void nextTick(() => document.getElementById('add-todo')?.focus())
 }
 async function save(): Promise<void> {
+  editor.flushText()
   invalidIds.value = content.value.todos.filter((todo) => !todo.text.trim()).map((todo) => todo.id)
   if (invalidIds.value.length) {
     error.value = 'У задачи должен быть текст. Заполните пустые строки или удалите их.'
@@ -58,6 +61,7 @@ async function save(): Promise<void> {
   const savedId = isNew ? crypto.randomUUID() : routeId
   const result = store.save(savedId, content.value, editor.baseRevision.value)
   if (result === 'saved') {
+    editor.finish()
     leaving.value = true
     await router.push('/')
     return
@@ -79,6 +83,7 @@ async function cancel(): Promise<void> {
       cancelLabel: 'Продолжить',
     })
   ) {
+    editor.finish()
     leaving.value = true
     await router.push('/')
   }
@@ -95,11 +100,22 @@ async function remove(): Promise<void> {
     })
   ) {
     if (store.remove(routeId)) {
+      editor.finish()
       leaving.value = true
       await router.push('/')
     }
   }
 }
+function keyboard(event: KeyboardEvent): void {
+  if (event.isComposing || options.value || missing.value || event.altKey) return
+  if ((event.ctrlKey || event.metaKey) && event.code === 'KeyZ') {
+    // One history owns text and structural edits, including focused inputs.
+    event.preventDefault()
+    if (event.shiftKey) editor.redo()
+    else editor.undo()
+  }
+}
+onBeforeUnmount(() => window.removeEventListener('keydown', keyboard, true))
 async function confirmLeave(): Promise<boolean> {
   if (leaving.value || !dirty.value) return true
   const discard = await ask({
@@ -109,6 +125,7 @@ async function confirmLeave(): Promise<boolean> {
     confirmLabel: 'Уйти без сохранения',
     cancelLabel: 'Остаться',
   })
+  if (discard) editor.finish()
   return discard
 }
 onBeforeRouteLeave(confirmLeave)
@@ -159,6 +176,26 @@ useHead({
         <section class="editor-paper" aria-label="Редактор заметки">
           <div class="editor-paper__toolbar">
             <span class="eyebrow">{{ isNew ? 'НОВАЯ ЗАМЕТКА' : 'ЗАМЕТКА' }}</span>
+            <div class="history-controls">
+              <button
+                class="icon-button"
+                :disabled="!canUndo || missing"
+                aria-label="Отменить изменение"
+                title="Отменить изменение (Ctrl+Z / ⌘Z)"
+                @click="editor.undo"
+              >
+                <AppIcon name="undo" :size="18" />
+              </button>
+              <button
+                class="icon-button"
+                :disabled="!canRedo || missing"
+                aria-label="Повторить изменение"
+                title="Повторить изменение (Ctrl+Shift+Z / ⌘⇧Z)"
+                @click="editor.redo"
+              >
+                <AppIcon name="redo" :size="18" />
+              </button>
+            </div>
           </div>
           <label class="field-label" for="note-title">Название</label>
           <input
@@ -170,6 +207,7 @@ useHead({
             placeholder="О чём эта заметка?"
             autocomplete="off"
             @input="editor.updateText('title', ($event.target as HTMLInputElement).value)"
+            @blur="editor.flushText"
           />
           <p class="field-hint">Можно оставить пустым — назовём «Без названия».</p>
           <div class="todo-heading">
@@ -192,6 +230,7 @@ useHead({
               :readonly="missing"
               :invalid="invalidIds.includes(todo.id) && !todo.text.trim()"
               @text="editor.updateText('text', $event, todo.id)"
+              @blur="editor.flushText"
               @toggle="editor.toggleTodo(todo.id)"
               @remove="removeTodo(todo.id, index)"
               @enter="addTodo"
@@ -220,6 +259,27 @@ useHead({
             </button>
             <button class="button button--text" @click="cancel">Отменить редактирование</button>
           </div>
+          <details class="keyboard-tip">
+            <summary>Быстрые клавиши</summary>
+            <div>
+              <kbd>Ctrl</kbd>
+              +
+              <kbd>Z</kbd>
+              <span>шаг назад</span>
+            </div>
+            <div>
+              <kbd>Ctrl</kbd>
+              +
+              <kbd>Shift</kbd>
+              +
+              <kbd>Z</kbd>
+              <span>вперёд</span>
+            </div>
+            <small>
+              На Mac используйте ⌘ вместо Ctrl.
+              <br />
+            </small>
+          </details>
           <button v-if="!isNew && !missing" class="delete-note" @click="remove">
             <AppIcon name="trash" :size="16" />
             Удалить заметку
