@@ -1,0 +1,12 @@
+node_modules
+.npm-cache
+.nuxt
+.output
+.git
+.codex
+.agents
+tmp
+test-results
+playwright-report
+redirect.pdf
+pdf-reference.png
