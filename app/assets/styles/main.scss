@@ -1,4 +1,4 @@
-:root {
+﻿:root {
   color-scheme: light;
   --ink: #292c33;
   --accent: #3478e5;
@@ -538,6 +538,9 @@ h1 {
   display: flex;
   align-items: center;
   gap: 7px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
   color: var(--subtle);
   input {
     width: 150px;
@@ -553,7 +556,7 @@ h1 {
     }
   }
   &:focus-within {
-    border-radius: 5px;
+    border-color: var(--accent);
     outline: 2px solid var(--focus-ring);
     outline-offset: 3px;
   }
@@ -563,14 +566,33 @@ h1 {
   flex-direction: column;
 }
 .note-card {
-  padding: 19px 4px 20px;
+  position: relative;
   border-bottom: 1px solid var(--line);
   min-width: 0;
+  &:hover,
+  &:focus-within {
+    background: var(--surface);
+  }
+}
+.note-card__link {
+  display: block;
+  padding: 19px 4px 20px;
+  border-radius: 7px;
+  user-select: text;
+  &:hover,
+  &:focus-visible {
+    h2,
+    .note-card__open {
+      color: var(--accent);
+    }
+  }
 }
 .note-card__heading {
   display: flex;
   align-items: center;
   gap: 11px;
+  min-height: 30px;
+  padding-right: 41px;
   h2 {
     min-width: 0;
     flex: 1;
@@ -605,6 +627,9 @@ h1 {
   margin-left: 12px;
 }
 .note-card__delete {
+  position: absolute;
+  top: 19px;
+  right: 4px;
   width: 30px;
   height: 30px;
   opacity: 0;
@@ -1357,8 +1382,12 @@ kbd {
       font-size: 12px;
     }
   }
-  .note-card {
+  .note-card__link {
     padding: 17px 0;
+  }
+  .note-card__delete {
+    top: 17px;
+    right: 0;
   }
   .note-card__heading {
     gap: 9px;

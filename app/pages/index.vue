@@ -1,10 +1,23 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useNotesStore } from '../stores/notes'
 import { useConfirmation } from '../composables/useConfirmation'
 const store = useNotesStore()
 const { options, ask, settle } = useConfirmation()
 const search = ref('')
+const debouncedSearch = ref('')
+let searchTimer: ReturnType<typeof setTimeout> | undefined
+watch(search, (value) => {
+  clearTimeout(searchTimer)
+  if (!value.trim()) {
+    debouncedSearch.value = ''
+    return
+  }
+  searchTimer = setTimeout(() => {
+    debouncedSearch.value = value
+  }, 300)
+})
+onBeforeUnmount(() => clearTimeout(searchTimer))
 const filter = useNoteFilter()
 const heading = computed(() =>
   filter.value === 'active'
@@ -21,7 +34,7 @@ const visible = computed(() =>
   store.notes.filter((note) => {
     const matches = `${note.title} ${note.todos.map((todo) => todo.text).join(' ')}`
       .toLocaleLowerCase('ru')
-      .includes(search.value.trim().toLocaleLowerCase('ru'))
+      .includes(debouncedSearch.value.trim().toLocaleLowerCase('ru'))
     const done = note.todos.length > 0 && note.todos.every((todo) => todo.done)
     return matches && (filter.value === 'all' || (filter.value === 'done' ? done : !done))
   }),
